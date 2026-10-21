@@ -1,0 +1,48 @@
+name: Deploy Sobrevivência to GitHub Pages
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: pages, cancel-in-progress: true }
+env:
+  GODOT_VERSION: 4.7.2
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode project
+        run: |
+          mkdir proj
+          cat payload/part_* | base64 -d | tar xz -C proj
+          ls -la proj
+      - name: Install Godot + templates
+        run: |
+          V=${GODOT_VERSION}-stable
+          wget -q https://github.com/godotengine/godot/releases/download/$V/Godot_v${V}_linux.x86_64.zip
+          wget -q https://github.com/godotengine/godot/releases/download/$V/Godot_v${V}_export_templates.tpz
+          unzip -q Godot_v${V}_linux.x86_64.zip
+          mv Godot_v${V}_linux.x86_64 /usr/local/bin/godot
+          D=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p $D
+          unzip -q -j Godot_v${V}_export_templates.tpz 'templates/web*' 'templates/version.txt' -d $D
+          ls $D
+      - name: Export
+        working-directory: proj
+        run: |
+          mkdir -p build/web
+          godot --headless --import || true
+          godot --headless --export-release Web build/web/index.html
+          ls -la build/web
+          test -s build/web/index.wasm
+      - uses: actions/configure-pages@v5
+        with: { enablement: true }
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: proj/build/web }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
